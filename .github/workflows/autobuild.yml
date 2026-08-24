@@ -25,37 +25,34 @@ jobs:
       - name: 安装 Android 工作负载 (Uno 构建所需)
         run: dotnet workload install android
 
+      # ========== 修复后的 restore 步骤 ==========
       - name: 还原所有示例项目的依赖
-        run: dotnet restore **/*.sln
-
-      - name: 编译所有 Windows 示例项目 (包括 ArchivedProjects)
+        shell: pwsh
         run: |
-          # 获取所有 .sln 文件
-          # 排除 build/ 目录（CI脚本）和 doc/ 目录（文档）
-          $solutions = Get-ChildItem -Path **\*.sln -Recurse | Where-Object {
-            $_.FullName -notmatch "\\build\\" -and
-            $_.FullName -notmatch "\\doc\\" -and
-            $_.FullName -notmatch "\\reference\\.*\\doc\\" -and
-            # 如果某些 .sln 文件包含 .nobuild 后缀，需要先重命名
-            $_.Name -notlike "*.nobuild"
+          Get-ChildItem -Path . -Filter *.sln -Recurse | ForEach-Object {
+            Write-Host "正在还原: $($_.FullName)"
+            dotnet restore $_.FullName
           }
 
-          Write-Host "找到 $($solutions.Count) 个解决方案文件"
-
+      # ========== 编译所有解决方案（包括 ArchivedProjects） ==========
+      - name: 编译所有 Windows 示例项目
+        shell: pwsh
+        run: |
+          # 获取所有 .sln 文件（不排除任何目录）
+          $solutions = Get-ChildItem -Path . -Filter *.sln -Recurse
           foreach ($solution in $solutions) {
-            Write-Host "正在编译解决方案: $($solution.FullName)"
+            Write-Host "正在编译: $($solution.FullName)"
             dotnet build $solution.FullName --configuration Release --no-restore
           }
-        shell: pwsh
 
-      - name: 收集所有编译产物（不过滤，全部复制）
+      # ========== 收集所有编译产物（不过滤，全部复制） ==========
+      - name: 收集所有编译产物
+        shell: pwsh
         run: |
           $artifactsDir = "artifacts"
           New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
-          # 获取 bin\Release 下的所有文件
-          $files = Get-ChildItem -Path **\bin\Release\** -Recurse -File
-
+          $files = Get-ChildItem -Path .\**\bin\Release\** -Recurse -File
           foreach ($file in $files) {
             $relativePath = $file.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1)
             $dest = Join-Path $artifactsDir $relativePath
@@ -64,7 +61,6 @@ jobs:
             Copy-Item -Path $file.FullName -Destination $dest -Force
           }
           Write-Host "共收集 $($files.Count) 个文件"
-        shell: pwsh
 
       - name: 打包所有产物为 ZIP 压缩包
         run: Compress-Archive -Path artifacts -DestinationPath build.zip -Force
