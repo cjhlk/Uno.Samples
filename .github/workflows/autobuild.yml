@@ -1,0 +1,77 @@
+name: Autobuild (Windows) - Full Samples
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 安装 Android 工作负载 (Uno 构建所需)
+        run: dotnet workload install android
+
+      - name: 还原所有示例项目的依赖
+        run: dotnet restore **/*.sln
+
+      - name: 编译所有 Windows 示例项目 (包括 ArchivedProjects)
+        run: |
+          # 获取所有 .sln 文件
+          # 排除 build/ 目录（CI脚本）和 doc/ 目录（文档）
+          $solutions = Get-ChildItem -Path **\*.sln -Recurse | Where-Object {
+            $_.FullName -notmatch "\\build\\" -and
+            $_.FullName -notmatch "\\doc\\" -and
+            $_.FullName -notmatch "\\reference\\.*\\doc\\" -and
+            # 如果某些 .sln 文件包含 .nobuild 后缀，需要先重命名
+            $_.Name -notlike "*.nobuild"
+          }
+
+          Write-Host "找到 $($solutions.Count) 个解决方案文件"
+
+          foreach ($solution in $solutions) {
+            Write-Host "正在编译解决方案: $($solution.FullName)"
+            dotnet build $solution.FullName --configuration Release --no-restore
+          }
+        shell: pwsh
+
+      - name: 收集所有编译产物（不过滤，全部复制）
+        run: |
+          $artifactsDir = "artifacts"
+          New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
+
+          # 获取 bin\Release 下的所有文件
+          $files = Get-ChildItem -Path **\bin\Release\** -Recurse -File
+
+          foreach ($file in $files) {
+            $relativePath = $file.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1)
+            $dest = Join-Path $artifactsDir $relativePath
+            $destDir = Split-Path $dest -Parent
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+            Copy-Item -Path $file.FullName -Destination $dest -Force
+          }
+          Write-Host "共收集 $($files.Count) 个文件"
+        shell: pwsh
+
+      - name: 打包所有产物为 ZIP 压缩包
+        run: Compress-Archive -Path artifacts -DestinationPath build.zip -Force
+
+      - name: 上传压缩包
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Build
+          path: build.zip
+          if-no-files-found: error
