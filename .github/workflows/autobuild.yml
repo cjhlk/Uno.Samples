@@ -22,10 +22,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: 安装 Android 工作负载 (Uno 构建所需)
+      - name: 安装 Android 工作负载 (部分项目引用需要)
         run: dotnet workload install android
 
-      # ========== 新增: NuGet 缓存 ==========
       - name: 缓存 NuGet 包
         uses: actions/cache@v4
         with:
@@ -34,35 +33,69 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      # ========== 修改: 添加 --skip-workload-resolution，忽略错误继续执行 ==========
-      - name: 还原所有示例项目的依赖
+      # ===== 还原和编译（自动尝试多个 Windows 框架） =====
+      - name: 还原并编译所有 Windows 项目
         continue-on-error: true
         shell: pwsh
         run: |
-          Get-ChildItem -Path . -Filter *.sln -Recurse | ForEach-Object {
-            Write-Host "正在还原: $($_.FullName)"
-            dotnet restore $_.FullName --skip-workload-resolution
-          }
+          $frameworks = @(
+            "net10.0-windows",
+            "net9.0-windows",
+            "net8.0-windows",
+            "net6.0-windows"
+          )
 
-      # ========== 修改: 忽略错误继续执行 ==========
-      - name: 编译所有 Windows 示例项目
-        continue-on-error: true
-        shell: pwsh
-        run: |
           $solutions = Get-ChildItem -Path . -Filter *.sln -Recurse
+
           foreach ($solution in $solutions) {
-            Write-Host "正在编译: $($solution.FullName)"
-            dotnet build $solution.FullName --configuration Release --no-restore
+            $built = $false
+            foreach ($fw in $frameworks) {
+              Write-Host "========================================"
+              Write-Host "尝试框架 $fw : $($solution.FullName)"
+              Write-Host "----------------------------------------"
+
+              Write-Host "还原 $fw ..."
+              dotnet restore $solution.FullName --skip-workload-resolution -p:TargetFramework=$fw
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "还原失败，尝试下一个框架"
+                continue
+              }
+
+              Write-Host "编译 $fw ..."
+              dotnet build $solution.FullName --configuration Release --no-restore -p:TargetFramework=$fw
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "✅ 成功构建，框架: $fw"
+                $built = $true
+                break
+              } else {
+                Write-Host "编译失败，尝试下一个框架"
+              }
+            }
+
+            if (-not $built) {
+              Write-Host "⚠️ 跳过: $($solution.FullName)（所有框架均失败）"
+            }
+            Write-Host ""
           }
 
-      # ========== 收集所有编译产物（不变） ==========
+          Write-Host "所有解决方案处理完毕（部分可能失败，已被忽略）"
+
+      # ===== 收集所有编译产物（不过滤） =====
       - name: 收集所有编译产物
         shell: pwsh
         run: |
           $artifactsDir = "artifacts"
           New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
-          $files = Get-ChildItem -Path .\**\bin\Release\** -Recurse -File
+          # 查找所有 bin\Release 下的文件（包括子目录）
+          $files = Get-ChildItem -Path . -Recurse -File | Where-Object {
+            $_.DirectoryName -match '\\bin\\Release\\'
+          }
+
+          if ($files.Count -eq 0) {
+            Write-Host "⚠️ 未找到任何 bin\Release 下的文件，请检查构建是否成功。"
+          }
+
           foreach ($file in $files) {
             $relativePath = $file.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1)
             $dest = Join-Path $artifactsDir $relativePath
@@ -70,6 +103,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path $destDir | Out-Null
             Copy-Item -Path $file.FullName -Destination $dest -Force
           }
+
           Write-Host "共收集 $($files.Count) 个文件"
 
       - name: 打包所有产物为 ZIP 压缩包
