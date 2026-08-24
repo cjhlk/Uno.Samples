@@ -53,7 +53,6 @@ jobs:
               Write-Host "尝试框架 $fw : $($solution.FullName)"
               Write-Host "----------------------------------------"
 
-              # 1. Restore with specific framework (no --skip-workload-resolution)
               Write-Host "还原 $fw ..."
               dotnet restore $solution.FullName -p:TargetFramework=$fw
               if ($LASTEXITCODE -ne 0) {
@@ -61,11 +60,10 @@ jobs:
                 continue
               }
 
-              # 2. Build with same framework
               Write-Host "编译 $fw ..."
               dotnet build $solution.FullName --configuration Release --no-restore -p:TargetFramework=$fw
               if ($LASTEXITCODE -eq 0) {
-                Write-Host "✅ 成功构建，框架: $fw"
+                Write-Host "成功构建，框架: $fw"
                 $built = $true
                 break
               } else {
@@ -74,7 +72,7 @@ jobs:
             }
 
             if (-not $built) {
-              Write-Host "⚠️ 跳过: $($solution.FullName)（所有框架均失败）"
+              Write-Host "跳过: $($solution.FullName)（所有框架均失败）"
             }
             Write-Host ""
           }
@@ -92,7 +90,7 @@ jobs:
           }
 
           if ($files.Count -eq 0) {
-            Write-Host "⚠️ 未找到任何 bin\Release 下的文件，请检查构建是否成功。"
+            Write-Host "未找到任何 bin\Release 下的文件，请检查构建是否成功。"
           }
 
           foreach ($file in $files) {
