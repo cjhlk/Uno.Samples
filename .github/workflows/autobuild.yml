@@ -22,6 +22,11 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      # ========= 新增：使用 CMD 查看编译环境系统信息 =========
+      - name: 显示编译环境系统信息 (CMD)
+        run: systeminfo
+        shell: cmd
+
       - name: 安装 Android 工作负载 (部分项目需要)
         run: dotnet workload install android
 
@@ -72,21 +77,23 @@ jobs:
             }
 
             if (-not $built) {
-              Write-Host "跳过: $($solution.FullName)（所有框架均失败）"
+              Write-Host "⚠️ 跳过: $($solution.FullName)（所有框架均失败）"
             }
             Write-Host ""
           }
 
           Write-Host "所有解决方案处理完毕（部分可能失败，已被忽略）"
 
-      - name: 收集所有编译产物
+      # ========= 修改：收集时过滤掉所有 .pdb 文件 =========
+      - name: 收集所有编译产物 (已排除 .pdb)
         shell: pwsh
         run: |
           $artifactsDir = "artifacts"
           New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
+          # 仅收集 bin\Release 目录下，且扩展名不为 .pdb 的文件
           $files = Get-ChildItem -Path . -Recurse -File | Where-Object {
-            $_.DirectoryName -match '\\bin\\Release\\'
+              $_.DirectoryName -match '\\bin\\Release\\' -and $_.Extension -ne '.pdb'
           }
 
           if ($files.Count -eq 0) {
