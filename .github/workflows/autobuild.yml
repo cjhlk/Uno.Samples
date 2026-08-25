@@ -22,7 +22,6 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # ========= 新增：使用 CMD 查看编译环境系统信息 =========
       - name: 显示编译环境系统信息 (CMD)
         run: systeminfo
         shell: cmd
@@ -84,20 +83,19 @@ jobs:
 
           Write-Host "所有解决方案处理完毕（部分可能失败，已被忽略）"
 
-      # ========= 修改：收集时过滤掉所有 .pdb 文件 =========
-      - name: 收集所有编译产物 (已排除 .pdb)
+      - name: 收集所有编译产物 (排除 .pdb)
         shell: pwsh
         run: |
           $artifactsDir = "artifacts"
           New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
-          # 仅收集 bin\Release 目录下，且扩展名不为 .pdb 的文件
           $files = Get-ChildItem -Path . -Recurse -File | Where-Object {
               $_.DirectoryName -match '\\bin\\Release\\' -and $_.Extension -ne '.pdb'
           }
 
           if ($files.Count -eq 0) {
             Write-Host "未找到任何 bin\Release 下的文件，请检查构建是否成功。"
+            exit 0
           }
 
           foreach ($file in $files) {
@@ -110,12 +108,25 @@ jobs:
 
           Write-Host "共收集 $($files.Count) 个文件"
 
-      - name: 打包所有产物为 ZIP 压缩包
-        run: Compress-Archive -Path artifacts -DestinationPath build.zip -Force
+      # ============================================================
+      # 安装 7-Zip 并分卷压缩
+      # ============================================================
+      - name: 安装 7-Zip
+        uses: milliewalky/setup-7-zip@v2
+        with:
+          tag: '24.07'
 
-      - name: 上传压缩包
+      - name: 7z 分卷压缩 (每卷 1800 MB)
+        run: |
+          7z a -v1800m build.7z artifacts\*
+        shell: cmd
+
+      # ============================================================
+      # 上传所有分卷文件
+      # ============================================================
+      - name: 上传分卷压缩包
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Build
-          path: build.zip
+          path: build.7z.*
           if-no-files-found: error
