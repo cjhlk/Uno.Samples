@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: windows-2022
     permissions:
-      contents: write  # 创建 Release 必需
+      contents: write
 
     steps:
       - name: 检出代码
@@ -78,7 +78,7 @@ jobs:
             }
 
             if (-not $built) {
-              Write-Host "跳过: $($solution.FullName)（所有框架均失败）"
+              Write-Host "⚠️ 跳过: $($solution.FullName)（所有框架均失败）"
             }
             Write-Host ""
           }
@@ -121,7 +121,7 @@ jobs:
         shell: cmd
 
       # ============================================================
-      # 方式一：上传到 Artifacts (快速查看，链接有时效)
+      # 上传到 Artifacts (备选)
       # ============================================================
       - name: 上传分卷到 Artifacts
         uses: actions/upload-artifact@v4
@@ -131,7 +131,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # 方式二：发布到 Release (永久链接，独立下载)
+      # 生成 Release 标签
       # ============================================================
       - name: 生成 Release 标签
         id: tag
@@ -141,29 +141,27 @@ jobs:
           Write-Host "Release 标签: $tag"
           Write-Host "tag=$tag" >> $env:GITHUB_OUTPUT
 
-      - name: 创建 Release 并上传分卷
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: "Windows Build ${{ steps.tag.outputs.tag }}"
-          body: |
-            ## Windows 平台编译产物
-
-            - 编译时间: ${{ steps.tag.outputs.tag }}
-            - 分卷大小: 1.3 GB
-            - 总大小约 2.3 GB
-
-            ### 下载后解压步骤
-            1. 下载所有分卷文件 (build.7z.001, build.7z.002)
-            2. 使用 7-Zip 打开 build.7z.001
-            3. 解压到任意目录
-
-            ### 提示
-            - 如果 Artifact 下载超时，请使用本 Release 的独立下载链接
-            - 每个分卷都有独立的永久下载链接
-          files: |
-            build.7z.*
-          draft: false
-          prerelease: true
+      # ============================================================
+      # 创建并推送标签（确保 Release 有目标）
+      # ============================================================
+      - name: 创建并推送标签
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag ${{ steps.tag.outputs.tag }}
+          git push origin ${{ steps.tag.outputs.tag }}
+        shell: pwsh
+
+      # ============================================================
+      # 基于标签创建 Release 并上传分卷
+      # ============================================================
+      - name: 创建 Release 并上传分卷
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          gh release create $tag build.7z.* `
+            --title "Windows Build $tag" `
+            --notes "Windows 平台编译产物，编译时间: $tag，分卷大小 1.3 GB" `
+            --prerelease
+        shell: pwsh
