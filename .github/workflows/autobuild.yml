@@ -131,37 +131,23 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # 生成 Release 标签
+      # 使用固定标签 autobuild 发布 Release
       # ============================================================
-      - name: 生成 Release 标签
-        id: tag
-        shell: pwsh
-        run: |
-          $tag = "build-" + (Get-Date -Format "yyyyMMdd-HHmmss")
-          Write-Host "Release 标签: $tag"
-          Write-Host "tag=$tag" >> $env:GITHUB_OUTPUT
-
-      # ============================================================
-      # 创建并推送标签（确保 Release 有目标）
-      # ============================================================
-      - name: 创建并推送标签
+      - name: 删除旧 Release (如果存在)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git tag ${{ steps.tag.outputs.tag }}
-          git push origin ${{ steps.tag.outputs.tag }}
+          gh release delete autobuild -y || echo "Release not found, skipping delete"
         shell: pwsh
+        continue-on-error: true
 
-      # ============================================================
-      # 基于标签创建 Release 并上传分卷
-      # ============================================================
-      - name: 创建 Release 并上传分卷
+      - name: 创建新的 Release 并上传分卷
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ steps.tag.outputs.tag }}"
-          gh release create $tag build.7z.* `
-            --title "Windows Build $tag" `
-            --notes "Windows 平台编译产物，编译时间: $tag，分卷大小 1.3 GB" `
-            --prerelease
+          gh release create autobuild build.7z.* `
+            --title "Windows Build (autobuild)" `
+            --notes "Windows 平台编译产物，自动构建，分卷大小 1.3 GB" `
+            --prerelease `
+            --latest=false
         shell: pwsh
